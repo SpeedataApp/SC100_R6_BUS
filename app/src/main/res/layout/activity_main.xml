@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".MainActivity">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:id="@+id/layout">
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_weight="1">
+
+            <TextView
+                android:id="@+id/tv_show"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/colorPrimaryDark">
+
+            </TextView>
+        </ScrollView>
+        <CheckBox
+            android:id="@+id/checkbox"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:layout_marginEnd="8dp"
+            android:layout_marginRight="8dp"
+            android:layout_marginStart="8dp"
+            android:text="复合消费" />
+        <Button
+            android:id="@+id/btn_psam"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="psam初始化" />
+
+        <Button
+            android:id="@+id/btn_ic"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="消费"
+            tools:layout_editor_absoluteX="0dp"
+            tools:layout_editor_absoluteY="63dp" />
+
+        <Button
+            android:id="@+id/btn_m1"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="M1"
+            tools:layout_editor_absoluteX="0dp"
+            tools:layout_editor_absoluteY="63dp" />
+    </LinearLayout>
+
+</LinearLayout>
