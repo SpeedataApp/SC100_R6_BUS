@@ -6,11 +6,6 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.TimeZone;
 
-/**
- * Created by 张明_ on 2018/8/30.
- * Email 741183142@qq.com
- */
-
 public class DataUtils {
 
     public static String getUTCtimes() {

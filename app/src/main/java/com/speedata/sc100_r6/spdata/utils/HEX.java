@@ -1,5 +1,6 @@
 package com.speedata.sc100_r6.spdata.utils;
 
+
 public class HEX {
     private static final char[] a = "0123456789ABCDEF".toCharArray();
 
@@ -14,14 +15,14 @@ public class HEX {
         for(int i = 0; i < len; ++i) {
             char c;
             int h;
-            if ((c = s.charAt(ii++)) <= '9') {
+            if((c = s.charAt(ii++)) <= 57) {
                 h = c - 48;
             } else {
                 h = c - 65 + 10;
             }
 
             h <<= 4;
-            if ((c = s.charAt(ii++)) <= '9') {
+            if((c = s.charAt(ii++)) <= 57) {
                 h |= c - 48;
             } else {
                 h |= c - 65 + 10;
@@ -105,12 +106,12 @@ public class HEX {
     }
 
     public static String bytesToCppHex(byte[] bs, int bytePerLine) {
-        if (bytePerLine <= 0 || bytePerLine >= 65536) {
+        if(bytePerLine <= 0 || bytePerLine >= 65536) {
             bytePerLine = 65536;
         }
 
         int lines = 0;
-        if (bytePerLine < 65536) {
+        if(bytePerLine < 65536) {
             lines = (bs.length + bytePerLine - 1) / bytePerLine;
         }
 
@@ -122,26 +123,26 @@ public class HEX {
 
         for(int var7 = 0; var7 < var8; ++var7) {
             byte n = var9[var7];
-            cs[io++] = '0';
-            cs[io++] = 'x';
+            cs[io++] = 48;
+            cs[io++] = 120;
             cs[io++] = a[n >> 4 & 15];
             cs[io++] = a[n >> 0 & 15];
-            cs[io++] = ',';
-            if (bytePerLine < 65536) {
+            cs[io++] = 44;
+            if(bytePerLine < 65536) {
                 ++ic;
-                if (ic >= bytePerLine) {
+                if(ic >= bytePerLine) {
                     ic = 0;
-                    cs[io++] = '/';
-                    cs[io++] = '/';
-                    cs[io++] = '\n';
+                    cs[io++] = 47;
+                    cs[io++] = 47;
+                    cs[io++] = 10;
                 }
             }
         }
 
-        if (bytePerLine < 65536 && io < cs.length) {
-            cs[io++] = '/';
-            cs[io++] = '/';
-            cs[io] = '\n';
+        if(bytePerLine < 65536 && io < cs.length) {
+            cs[io++] = 47;
+            cs[io++] = 47;
+            cs[io] = 10;
         }
 
         return new String(cs);

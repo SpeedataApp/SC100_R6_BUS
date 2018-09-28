@@ -1,10 +1,4 @@
 package com.speedata.sc100_r6.spdata.been;
-
-/**
- * Created by 张明_ on 2018/8/30.
- * Email 741183142@qq.com
- */
-
 public class TCommInfo {
     public byte fValid;                                   // 有效标志
     public byte cPtr;                                     // 记录指针,1

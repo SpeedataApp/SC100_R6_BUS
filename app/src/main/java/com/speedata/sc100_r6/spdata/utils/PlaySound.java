@@ -21,7 +21,7 @@ public class PlaySound {
     public static final int dang = 1;
     public static final int xiaofeiSuccse = 2;
     public static final int erro = 3;
-    public static final int PASS_SCAN = 5;
+    public static final int carderro = 4;
     public static final int REPETITION = 6;
     public static int NO_CYCLE = 0;//不循环
 
@@ -36,7 +36,7 @@ public class PlaySound {
         mapSRC.put(dang, sp.load(context, R.raw.dang, 0));
 
         mapSRC.put(erro, sp.load(context, R.raw.error, 0));
-        mapSRC.put(PASS_SCAN, sp.load(context, R.raw.repetitions, 0));
+        mapSRC.put(carderro, sp.load(context, R.raw.carderro, 0));
         mapSRC.put(REPETITION, sp.load(context, R.raw.repetition_kuaishou, 0));
     }
 

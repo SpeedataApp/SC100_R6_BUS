@@ -1,10 +1,5 @@
 package com.speedata.sc100_r6.spdata.been;
 
-/**
- * Created by 张明_ on 2018/8/29.
- * Email 741183142@qq.com
- */
-
 public class PsamBeen {
 
 
