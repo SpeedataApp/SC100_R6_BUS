@@ -1,17 +1,36 @@
 package com.speedata.sc100_r6;
 
+import android.annotation.SuppressLint;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.os.SystemClock;
-import android.serialport.SerialPort;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.View;
-import android.widget.Button;
+import android.view.WindowManager;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
-import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import com.example.test.yinlianbarcode.entity.QrEntity;
+import com.example.test.yinlianbarcode.interfaces.OnBackListener;
+import com.example.test.yinlianbarcode.utils.Logcat;
+import com.example.test.yinlianbarcode.utils.ScanUtils;
+import com.example.test.yinlianbarcode.utils.ValidationUtils;
+import com.honeywell.barcode.ActiveCamera;
+import com.honeywell.barcode.HSMDecodeComponent;
+import com.honeywell.barcode.HSMDecodeResult;
+import com.honeywell.barcode.HSMDecoder;
+import com.honeywell.camera.CameraManager;
+import com.honeywell.camera.HSMCameraPreview;
+import com.honeywell.plugins.decode.DecodeResultListener;
 import com.speedata.libutils.DataConversionUtils;
 import com.speedata.r6lib.IMifareManager;
 import com.speedata.r6lib.IR6Manager;
@@ -19,6 +38,9 @@ import com.speedata.r6lib.R6Manager;
 import com.speedata.sc100_r6.spdata.been.IcCardBeen;
 import com.speedata.sc100_r6.spdata.been.TCommInfo;
 import com.speedata.sc100_r6.spdata.utils.DataUtils;
+import com.speedata.sc100_r6.spdata.utils.HEX;
+import com.speedata.sc100_r6.spdata.utils.PlaySound;
+import com.speedata.sc100_r6.spdata.utils.TLV;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -34,35 +56,65 @@ import speedatacom.a3310libs.PsamManager;
 import speedatacom.a3310libs.inf.IPsam;
 
 import static com.android.hflibs.Mifare_native.AUTH_TYPEA;
+import static com.honeywell.barcode.Symbology.CODE128;
+import static com.honeywell.barcode.Symbology.CODE39;
+import static com.honeywell.barcode.Symbology.CODE93;
+import static com.honeywell.barcode.Symbology.EAN13;
+import static com.honeywell.barcode.Symbology.QR;
 
-public class MainActivity extends AppCompatActivity implements View.OnClickListener {
-
-
-    private String TAG = "sc100R6";
-    private IR6Manager mIR6Manager;//定义对象
-    private IMifareManager mifareManager;//定义对象
-    private IPsam iPsam;
-    //选择PPSE支付环境
+public class MainActivity extends AppCompatActivity implements DecodeResultListener {
+    /**
+     * 选择PPSE支付环境
+     */
     private final byte[] fuhe_tlv = {0x00, (byte) 0xA4, 0x04, 0x00, 0x0e, 0x32, 0x50, 0x41, 0x59, 0x2e, 0x53, 0x59, 0x53, 0x2e,
             0x44, 0x44, 0x46, 0x30, 0x31};
-    //读ic卡应用下公共应用基本信息文件指令 15文件
+    /**
+     * 读ic卡应用下公共应用基本信息文件指令 15文件
+     */
     private final byte[] ic_read_file = {0x00, (byte) 0xB0, (byte) 0x95, 0x00, 0x00};
-    //选择卡类型为Mifare卡。
 
-    //获取PSAM卡终端机编号指令
+    /**
+     * 获取PSAM卡终端机编号指令
+     */
     private final byte[] psam1_get_id = {0x00, (byte) 0xB0, (byte) 0x96, 0x00, 0x06};
-    //交通部
+
+    /**
+     * 交通部
+     */
     private final byte[] psam2_select_dir = {0x00, (byte) 0xA4, 0x00, 0x00, 0x02, (byte) 0x80, 0x11};
-    //住建部
+    /**
+     * 住建部
+     */
     private final byte[] psamzhujian_select_dir = {0x00, (byte) 0xA4, 0x00, 0x00, 0x02, (byte) 0x10, 0x01};
-    //读取psam卡17文件
+    /**
+     * 读取psam卡17文件
+     */
     private final byte[] psam3_get_index = {0x00, (byte) 0xB0, (byte) 0x97, 0x00, 0x01};
-    private final byte[] APDU_RESULT_SUCCESS = {(byte) 0x90, 0x00};//返回正确结果
-    private final byte[] APDU_RESULT_FAILE = {(byte) 0x62, (byte) 0x83};//返回错误结果
-    //选择电子钱包应用
+    /**
+     * 返回正确结果
+     */
+    private final byte[] APDU_RESULT_SUCCESS = {(byte) 0x90, 0x00};
+    /**
+     * 返回错误结果
+     */
+    private final byte[] APDU_RESULT_FAILE = {(byte) 0x62, (byte) 0x83};
+    /**
+     * 选择电子钱包应用
+     */
     private final byte[] ic_file = {0x00, (byte) 0xA4, 0x04, 0x00, 0x08, (byte) 0xA0, 0x00, 0x00, 0x06, 0x32, 0x01, 0x01, 0x05};
+    private String tag = "sc100R6";
+    /**
+     * 定义对象
+     */
+    private IR6Manager cpuAR6Manager;
+    /**
+     * 定义对象
+     */
+    private IMifareManager mifareR6Manager;
+    private IPsam iPsam;
+
     private byte flag;
-    private byte[] retvalue;
+    private byte[] resultBytes;
     private int isExpense = -1;
     private byte[] systemTime;
     private byte[] deviceCode;//终端编号
@@ -75,47 +127,76 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private byte[] ATC = new byte[2];
     private byte[] keyVersion = new byte[4];
     private byte[] rondomCpu = new byte[4];
-    private byte[] PSAM_ATC = new byte[4];
-    private byte[] MAC1 = new byte[4];
-    /**
-     * Hello World!
-     */
-    private SerialPort serialPort;
-    private int fd;
-    private TextView tvShowMsg;
-    /**
-     * psam初始化
-     */
-    private Button mBtnPsam;
-    /**
-     * 消费
-     */
-    private Button mBtnIc;
-    /**
-     * M1
-     */
-    private Button mBtnM1;
+    private byte[] psamAtc = new byte[4];
+    private byte[] mac1 = new byte[4];
+
     /**
      * 复合消费
      */
     private CheckBox mCheckbox;
-    private LinearLayout mLayout;
+    private TextView mTvTitle;
+    private TextView mTvCircuit;
+    private TextView mTvPrice;
+    private TextView mTvBalance;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-        initView();
+        //去掉Activity上面的状态栏
+        getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        //去掉虚拟按键全屏显示
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
+//        //点击屏幕不再显示
+        this.getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION // hide nav
+                        // bar
+                        | View.SYSTEM_UI_FLAG_FULLSCREEN // hide status bar
+                        | View.SYSTEM_UI_FLAG_IMMERSIVE);
 
+        setContentView(R.layout.bus_layout);
+        initView();
+        //注册系统时间广播 只能动态注册
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_TIME_TICK);
+        registerReceiver(receiver, filter);
+        PlaySound.initSoundPool(this);
         intDev();
+        initScanBards();
     }
+
+    /**
+     * 更新时间
+     */
+    private final BroadcastReceiver receiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if (action.equals(Intent.ACTION_TIME_TICK)) {
+                mTvTitle.setText("产品编号：0123456789   " + DataUtils.getNowTime());
+            }
+        }
+    };
+
 
     private void intDev() {
         //选择卡类型为cpuA卡。同理cpuB卡为：CPUB
-        mIR6Manager = R6Manager.getInstance(R6Manager.CardType.CPUA);//选择卡类型：CPUA
-        mIR6Manager.InitDevice();
-        mifareManager = R6Manager.getMifareInstance(R6Manager.CardType.MIFARE);//选择卡类型：15693
-        mifareManager.InitDev();
+        cpuAR6Manager = R6Manager.getInstance(R6Manager.CardType.CPUA);//选择卡类型：CPUA
+        int a = cpuAR6Manager.InitDevice();
+        if (a != 0) {
+            Log.e(tag, "intDev:  cpua初始化失败");
+            mTvPrice.setTextSize(65);
+            mTvPrice.setText("R6CPU初始化失败！");
+        }
+        mifareR6Manager = R6Manager.getMifareInstance(R6Manager.CardType.MIFARE);//选择卡类型：15693}
+        a = mifareR6Manager.InitDev();
+        if (a != 0) {
+            Log.e(tag, "intDev:  MIFARE初始化失败");
+            mTvPrice.setTextSize(65);
+            mTvPrice.setText("R6MIFARE初始化失败！");
+        }
         iPsam = PsamManager.getPsamIntance();
         try {
             iPsam.initDev(this);
@@ -124,27 +205,39 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         } catch (IOException e) {
             e.printStackTrace();
         }
-        psamInit();
-        psamM1Init();
-
+        if (psam1Init() != 0) {
+            PlaySound.play(PlaySound.erro,3);
+            mTvPrice.setTextSize(65);
+            mTvPrice.setText("PSAM1初始化失败！");
+        }
+        if (psam2Init() != 0) {
+            PlaySound.play(PlaySound.erro,3);
+            mTvPrice.setTextSize(65);
+            mTvPrice.setText("PSAM2初始化失败！");
+        }
         startTimer();
     }
 
+    private void initR6() {
+        if (cpuAR6Manager != null) {
+            int a = cpuAR6Manager.InitDevice();
+            if (a != 0) {
+                Log.e(tag, "intDev:  cpua初始化失败");
+                return;
+            }
+        }
+    }
 
     private byte[] ICSendAPDU(byte[] cmd) {
 
-        byte[] result = mIR6Manager.ExecCmdInput(cmd);//发送指令
+        byte[] result = cpuAR6Manager.ExecCmdInput(cmd);//发送指令
         if (result == null) {
-            Log.e(TAG, "write指令返回失败失败 , ");
+            Log.e(tag, "write指令返回失败失败 , ");
             return null;
         }
         return result;
     }
 
-    private int MifareWriteBlock(int block, byte[] data) {
-        int re = mifareManager.WriteBlock(block, data);
-        return re;
-    }
 
     private byte[] PsamSenAPDU(IPsam.PowerType types, byte[] cmd) throws UnsupportedEncodingException {
         byte[] re = iPsam.WriteCmd(cmd, types);
@@ -153,21 +246,24 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     @Override
     protected void onStop() {
+        hsmDecodeComponent.enableScanning(false);
+        hsmDecodeComponent.dispose();
+        HSMDecoder.disposeInstance();
+
         super.onStop();
-        mIR6Manager.ReleaseDevice();
-        mifareManager.ReleaseDev();
+        if (timer != null) {
+            timer.cancel();
+            timer = null;
+        }
+        unregisterReceiver(receiver);
+
+        cpuAR6Manager.ReleaseDevice();
+
+        mifareR6Manager.ReleaseDev();
     }
 
     private void initView() {
-        tvShowMsg = findViewById(R.id.tv_show);
-        mBtnPsam = findViewById(R.id.btn_psam);
-        mBtnPsam.setOnClickListener(this);
-        mBtnIc = findViewById(R.id.btn_ic);
-        mBtnIc.setOnClickListener(this);
-        mBtnM1 = findViewById(R.id.btn_m1);
-        mBtnM1.setOnClickListener(this);
         mCheckbox = findViewById(R.id.checkbox);
-        mLayout = findViewById(R.id.layout);
         mCheckbox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
@@ -178,58 +274,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 }
             }
         });
-    }
-
-    //    private SerialManager mSerialManager;
-//    private ByteBuffer mInputBuffer;
-//    private ByteBuffer mOutputBuffer;
-//    private SerialPort mSerialPort;
-
-    @Override
-    public void onClick(View v) {
-        switch (v.getId()) {
-            default:
-                break;
-            case R.id.btn_psam:
-                psamInit();
-                break;
-            case R.id.btn_ic:
-                ICExpance();
-//                retvalue = ICSendAPDU(ic_read_file);
-//                if (retvalue==null) {
-//                    isExpense = 1;
-//                    Log.e(TAG, "消费记录 tlv 3031 error ");
-//                    return;
-//                }
-//                retvalue = ICSendAPDU(fuhe_tlv);
-//                if (retvalue==null) {
-//                    isExpense = 1;
-//                    Log.e(TAG, "消费记录 tlv 3031 error ");
-//                    return;
-//                }
-//
-
-                break;
-            case R.id.btn_m1:
-//                retvalue = mifareManager.SearchCard();
-//                if (retvalue == null) {
-//                    return;
-//                }
-//                byte[] keyData = {(byte) 0x82, (byte) 0xF0, (byte) 0xAC, (byte) 0xB4, 0x20, (byte) 0x8C};
-//                int a = mifareManager.AuthenticationCardByKey(AUTH_TYPEA, retvalue, 8, keyData);
-//                if (a != 0) {
-//                    return;
-//                }
-//                retvalue = mifareManager.ReadBlock(9);
-//                Log.d(TAG, "onClick: qian " + DataConversionUtils.byteArrayToString(retvalue));
-//                a = mifareManager.DecrementBlockValue(9, 2);
-//                retvalue = mifareManager.ReadBlock(9);
-//
-//                Log.d(TAG, "onClick:  hou " + DataConversionUtils.byteArrayToString(retvalue));
-
-                M1ICCard();
-                break;
-        }
+        mTvTitle = findViewById(R.id.tv_title);
+        mTvCircuit = findViewById(R.id.tv_circuit);
+        mTvPrice = findViewById(R.id.tv_price);
+        mTvBalance = findViewById(R.id.tv_balance);
+        mTvTitle.setText("产品编号：0123456789   " + DataUtils.getNowTime());
     }
 
     private Timer timer = new Timer();
@@ -239,401 +288,474 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             @Override
             public void run() {
                 if (snUid == null) {
-                    Log.d("stw", "suid==0");
-//                    isExpense = 0;
-                    M1ICCard();
-                } else {
-                    int a = mifareManager.HaltCard();
-                    if (a != 0) {
+                    isExpense = -1;
+                    resultBytes = mifareR6Manager.SearchCardSak();
+                    if (resultBytes == null) {
+                        isExpense = 1;
+                        Log.e(tag, "M1ICCard: 获取UID失败");
                         return;
                     }
-                    a = mifareManager.ActiveCard(snUid);
-                    if (a == 0) {
-//                        isExpense = 0;
-                        Log.d("stw", "卡片在");
-                        return;
-                    } else {
-                        snUid = null;
-                        Log.d("stw", "卡片不在");
-                        return;
+                    cardType = resultBytes[0];
+                    snUid = cutBytes(resultBytes, 1, resultBytes.length - 1);
+                    if ((cardType & 0x20) == 0) {
+                        if (cardType == 0x18 || cardType == 0x38) {//70卡
+                            Log.i(tag, "ddd:  z执行M1卡 ");
+                            M1ICCard();
+                        } else {//50卡
+                            M1ICCard();
+                        }
+                    } else {//CPU卡
+                        Log.i(tag, "ddd:  z执行CPU卡 ");
+                        ICExpance();
+                    }
+                } else {
+                    if (isExpense == 1) {//m1卡检测
+                        int a = mifareR6Manager.HaltCard();
+                        if (a != 0) {
+                            return;
+                        }
+                        a = mifareR6Manager.ActiveCard(snUid);
+                        if (a == 0) {
+                            Log.d(tag, "卡片在");
+                            return;
+                        } else {
+                            snUid = null;
+                            Log.d(tag, "卡片不在");
+                            return;
+                        }
                     }
                 }
             }
-        }, 10, 100);
+        }, 10, 50);
 
     }
 
 
+    private byte[] CpuASearchCardSaks() {
+        byte[] result = cpuAR6Manager.SearchCard();
+        while (result == null) {
+            result = cpuAR6Manager.SearchCard();
+            Log.i("ssssss", "CpuASearchCardSaks:  SearchCardSearchCardSearchCardSearchCard ");
+        }
+        return result;
+    }
+
     /**
      * psam 初始化流程
      */
-    private void psamInit() {
+    private int psam1Init() {
         try {
-            retvalue = iPsam.PsamPower(IPsam.PowerType.Psam1);
-            if (retvalue == null) {
-                isExpense = 1;
-                Log.e(TAG, "psamInit: psam1 上电失败 ");
-                return;
+            resultBytes = iPsam.PsamPower(IPsam.PowerType.Psam1);
+            if (resultBytes == null) {
+                Log.e(tag, "psamInit: psam1 上电失败 ");
+                return 1;
             }
-            retvalue = PsamSenAPDU(IPsam.PowerType.Psam1, psam1_get_id);
-            if (retvalue == null) {
-                Log.e(TAG, "psamInit:  psam读16文件错误 ");
-                isExpense = 1;
-                return;
+            resultBytes = PsamSenAPDU(IPsam.PowerType.Psam1, psam1_get_id);
+            if (resultBytes == null) {
+                Log.e(tag, "psamInit:  psam读16文件错误 ");
+                return 1;
             }
-            Log.d(TAG, "交通部16文件：" + DataConversionUtils.byteArrayToString(retvalue));
-            if (!Arrays.equals(cutBytes(retvalue, retvalue.length - 2, 2), APDU_RESULT_SUCCESS)) {
-                Log.e(TAG, "交通部获取终端编号错误:" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)));
-                return;
+            Log.d(tag, "交通部16文件：" + DataConversionUtils.byteArrayToString(resultBytes));
+            if (!Arrays.equals(cutBytes(resultBytes, resultBytes.length - 2, 2), APDU_RESULT_SUCCESS)) {
+                Log.e(tag, "交通部获取终端编号错误:" + DataConversionUtils.byteArrayToString(cutBytes(resultBytes, resultBytes.length - 2, 2)));
+                return 1;
             }
-            deviceCode = cutBytes(retvalue, 0, retvalue.length - 2);//终端机编号
-            tvShowMsg.append("\n交通部PSAM卡终端机编号: " + DataConversionUtils.byteArrayToString(deviceCode));
-            Log.d(TAG, "====交通部PSAM卡终端机编号==== " + DataConversionUtils.byteArrayToString(deviceCode));
-            retvalue = PsamSenAPDU(IPsam.PowerType.Psam1, psam2_select_dir);
-            if (retvalue == null) {
-                Log.e(TAG, "psamInit:psam 8011 错误");
-                return;
+            deviceCode = cutBytes(resultBytes, 0, resultBytes.length - 2);//终端机编号
+            Log.d(tag, "====交通部PSAM卡终端机编号==== " + DataConversionUtils.byteArrayToString(deviceCode));
+            resultBytes = PsamSenAPDU(IPsam.PowerType.Psam1, psam2_select_dir);
+            if (resultBytes == null) {
+                Log.e(tag, "psamInit:psam 8011 错误");
+                return 1;
             }
-            Log.d(TAG, "===交通部80 11 ====" + DataConversionUtils.byteArrayToString(retvalue));
-            if (!Arrays.equals(new byte[]{0x61, 0x1D}, cutBytes(retvalue, retvalue.length - 2, 2))) {
-                tvShowMsg.append("\n交通部切换8011错误:" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)));
-                Log.d(TAG, "交通部切换8011错误:" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)));
-                return;
+            Log.d(tag, "===交通部80 11 ====" + DataConversionUtils.byteArrayToString(resultBytes));
+            if (!Arrays.equals(new byte[]{0x61, 0x1D}, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
+                Log.d(tag, "交通部切换8011错误:" + DataConversionUtils.byteArrayToString(cutBytes(resultBytes, resultBytes.length - 2, 2)));
+                return 1;
             }
             byte[] GET_RESPONSE = {0x00, (byte) 0xC0, 0x00, 0x00, (byte) 0xFF};
-            System.arraycopy(retvalue, 1, GET_RESPONSE, 4, 1);
-            retvalue = PsamSenAPDU(IPsam.PowerType.Psam1, GET_RESPONSE);
-            if (retvalue == null) {
-                Log.e(TAG, "psamInit:psam 8011 错误");
-                return;
+            System.arraycopy(resultBytes, 1, GET_RESPONSE, 4, 1);
+            resultBytes = PsamSenAPDU(IPsam.PowerType.Psam1, GET_RESPONSE);
+            if (resultBytes == null) {
+                Log.e(tag, "psamInit:psam 8011 错误");
+                return 1;
             }
-            Log.d(TAG, "===交通部80 11 ====" + DataConversionUtils.byteArrayToString(retvalue));
-            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
-                tvShowMsg.append("\n交通部切换8011错误:" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)));
-                Log.d(TAG, "交通部切换8011错误:" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)));
-                return;
+            Log.d(tag, "===交通部80 11 ====" + DataConversionUtils.byteArrayToString(resultBytes));
+            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
+                Log.d(tag, "交通部切换8011错误:" + DataConversionUtils.byteArrayToString(cutBytes(resultBytes, resultBytes.length - 2, 2)));
+                return 1;
             }
-            tvShowMsg.append("\n交通部8011return: " + DataConversionUtils.byteArrayToString(retvalue));
-
-            retvalue = PsamSenAPDU(IPsam.PowerType.Psam1, psam3_get_index);
-            if (retvalue == null) {
-                tvShowMsg.append("\n交通部切换00B0错误:" + cutBytes(retvalue, retvalue.length - 2, 2));
-                Log.d(TAG, "交通部切换00B0错误:" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)));
+            resultBytes = PsamSenAPDU(IPsam.PowerType.Psam1, psam3_get_index);
+            if (resultBytes == null) {
+                Log.d(tag, "交通部切换00B0错误:" + DataConversionUtils.byteArrayToString(cutBytes(resultBytes, resultBytes.length - 2, 2)));
+                return 1;
             }
-            Log.d(TAG, "===交通部读17文件获取秘钥索引===" + DataConversionUtils.byteArrayToString(retvalue));
-            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
-                Log.d(TAG, "交通部获取秘钥索引错误:" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)));
-
+            Log.d(tag, "===交通部读17文件获取秘钥索引===" + DataConversionUtils.byteArrayToString(resultBytes));
+            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
+                Log.d(tag, "交通部获取秘钥索引错误:" + DataConversionUtils.byteArrayToString(cutBytes(resultBytes, resultBytes.length - 2, 2)));
+                return 1;
             }
-            psamKey = cutBytes(retvalue, 0, 1);
-            Log.d(TAG, "交通部秘钥索引: " + DataConversionUtils.byteArrayToString(psamKey) + "\n" + "PSAM初始化成功！！！请读消费卡\n");
-            tvShowMsg.append("\n交通部秘钥索引: " + DataConversionUtils.byteArrayToString(psamKey) + "\n" + "PSAM初始化成功！！！请读消费卡\n");
+            psamKey = cutBytes(resultBytes, 0, 1);
+            Log.d(tag, "交通部秘钥索引: " + DataConversionUtils.byteArrayToString(psamKey) + "\n" + "PSAM初始化成功！！！请读消费卡\n");
             //切换等待读消费卡
+            return 0;
         } catch (UnsupportedEncodingException e) {
             e.printStackTrace();
+            return 1;
         }
     }
 
     /**
      * psam m1psam初始化
      */
-    private void psamM1Init() {
+    private int psam2Init() {
         try {
-            retvalue = iPsam.PsamPower(IPsam.PowerType.Psam2);
-            if (retvalue == null) {
-                isExpense = 1;
-                Log.e(TAG, "psamInit: psam2 上电失败 ");
-                return;
+            resultBytes = iPsam.PsamPower(IPsam.PowerType.Psam2);
+            if (resultBytes == null) {
+                Log.e(tag, "psamInit: psam2 上电失败 ");
+                return 1;
             }
-            retvalue = PsamSenAPDU(IPsam.PowerType.Psam2, psam1_get_id);
-            if (retvalue == null) {
-                Log.e(TAG, "psamInit:  住建部M1 psam读16文件错误 ");
-                isExpense = 1;
-                return;
+            resultBytes = PsamSenAPDU(IPsam.PowerType.Psam2, psam1_get_id);
+            if (resultBytes == null) {
+                Log.e(tag, "psamInit:  住建部M1 psam读16文件错误 ");
+                return 1;
             }
-            Log.d(TAG, "住建部M1 16文件：" + DataConversionUtils.byteArrayToString(retvalue));
-            if (!Arrays.equals(cutBytes(retvalue, retvalue.length - 2, 2), APDU_RESULT_SUCCESS)) {
-                Log.e(TAG, "住建部M1获取终端编号错误:" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)));
-                return;
+            Log.d(tag, "住建部M1 16文件：" + DataConversionUtils.byteArrayToString(resultBytes));
+            if (!Arrays.equals(cutBytes(resultBytes, resultBytes.length - 2, 2), APDU_RESULT_SUCCESS)) {
+                Log.e(tag, "住建部M1获取终端编号错误:" + DataConversionUtils.byteArrayToString(cutBytes(resultBytes, resultBytes.length - 2, 2)));
+                return 1;
             }
-            deviceCode = cutBytes(retvalue, 0, retvalue.length - 2);//终端机编号
-            tvShowMsg.append("\n住建部M1PSAM卡终端机编号: " + DataConversionUtils.byteArrayToString(deviceCode));
-            Log.d(TAG, "====住建部M1PSAM卡终端机编号==== " + DataConversionUtils.byteArrayToString(deviceCode));
-            retvalue = PsamSenAPDU(IPsam.PowerType.Psam2, psamzhujian_select_dir);
-            if (retvalue == null) {
-                Log.e(TAG, "psamInit:psam 1001 错误");
-                return;
+            deviceCode = cutBytes(resultBytes, 0, resultBytes.length - 2);//终端机编号
+            Log.d(tag, "====住建部M1PSAM卡终端机编号==== " + DataConversionUtils.byteArrayToString(deviceCode));
+            resultBytes = PsamSenAPDU(IPsam.PowerType.Psam2, psamzhujian_select_dir);
+            if (resultBytes == null) {
+                Log.e(tag, "psamInit:psam 1001 错误");
+                return 1;
             }
-            Log.d(TAG, "===住建部M110 01 ====" + DataConversionUtils.byteArrayToString(retvalue));
-            if (!Arrays.equals(new byte[]{0x61, 0x28}, cutBytes(retvalue, retvalue.length - 2, 2))) {
-                tvShowMsg.append("\n住建部M1切换10 01错误:" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)));
-                Log.d(TAG, "住建部M1切换10 01错误:" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)));
-                return;
+            Log.d(tag, "===住建部M110 01 ====" + DataConversionUtils.byteArrayToString(resultBytes));
+            if (!Arrays.equals(new byte[]{0x61, 0x28}, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
+                Log.d(tag, "住建部M1切换10 01错误:" + DataConversionUtils.byteArrayToString(cutBytes(resultBytes, resultBytes.length - 2, 2)));
+                return 1;
             }
             byte[] GET_RESPONSE = {0x00, (byte) 0xC0, 0x00, 0x00, (byte) 0xFF};
-            System.arraycopy(retvalue, 1, GET_RESPONSE, 4, 1);
-            retvalue = PsamSenAPDU(IPsam.PowerType.Psam2, GET_RESPONSE);
-            if (retvalue == null) {
-                Log.e(TAG, "psamInit:psam 8011 错误");
-                return;
+            System.arraycopy(resultBytes, 1, GET_RESPONSE, 4, 1);
+            resultBytes = PsamSenAPDU(IPsam.PowerType.Psam2, GET_RESPONSE);
+            if (resultBytes == null) {
+                Log.e(tag, "psamInit:psam 8011 错误");
+                return 1;
             }
-            Log.d(TAG, "===住建部M110 01 ====" + DataConversionUtils.byteArrayToString(retvalue));
-            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
-                tvShowMsg.append("\n住建部M1切换10 011错误:" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)));
-                Log.d(TAG, "住建部M1切换10 01错误:" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)));
-                return;
+            Log.d(tag, "===住建部M110 01 ====" + DataConversionUtils.byteArrayToString(resultBytes));
+            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
+                Log.d(tag, "住建部M1切换10 01错误:" + DataConversionUtils.byteArrayToString(cutBytes(resultBytes, resultBytes.length - 2, 2)));
+                return 1;
             }
-            tvShowMsg.append("\n住建部M110 01return: " + DataConversionUtils.byteArrayToString(retvalue));
 
-            retvalue = PsamSenAPDU(IPsam.PowerType.Psam2, psam3_get_index);
-            if (retvalue == null) {
-                tvShowMsg.append("\n住建部M1切换00B0错误:" + cutBytes(retvalue, retvalue.length - 2, 2));
-                Log.d(TAG, "住建部M1切换00B0错误:" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)));
+            resultBytes = PsamSenAPDU(IPsam.PowerType.Psam2, psam3_get_index);
+            if (resultBytes == null) {
+                Log.d(tag, "住建部M1切换00B0错误:" + DataConversionUtils.byteArrayToString(cutBytes(resultBytes, resultBytes.length - 2, 2)));
+                return 1;
             }
-            Log.d(TAG, "===住建部M1读17文件获取秘钥索引===" + DataConversionUtils.byteArrayToString(retvalue));
-            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
-                Log.d(TAG, "住建部M1获取秘钥索引错误:" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)));
-
+            Log.d(tag, "===住建部M1读17文件获取秘钥索引===" + DataConversionUtils.byteArrayToString(resultBytes));
+            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
+                Log.d(tag, "住建部M1获取秘钥索引错误:" + DataConversionUtils.byteArrayToString(cutBytes(resultBytes, resultBytes.length - 2, 2)));
+                return 1;
             }
-            psamKey = cutBytes(retvalue, 0, 1);
-            Log.d(TAG, "住建部M1秘钥索引: " + DataConversionUtils.byteArrayToString(psamKey) + "\n" + "PSAM初始化成功！！！请读消费卡\n");
-            tvShowMsg.append("\n住建部M1秘钥索引: " + DataConversionUtils.byteArrayToString(psamKey) + "\n" + "PSAM初始化成功！！！请读消费卡\n");
+            psamKey = cutBytes(resultBytes, 0, 1);
+            Log.d(tag, "住建部M1秘钥索引: " + DataConversionUtils.byteArrayToString(psamKey) + "\n" + "PSAM初始化成功！！！请读消费卡\n");
             //切换等待读消费卡
+            return 0;
         } catch (UnsupportedEncodingException e) {
             e.printStackTrace();
+            return 1;
         }
     }
 
+    @SuppressLint("HandlerLeak")
+    Handler handler = new Handler() {
+        @Override
+        public void handleMessage(Message msg) {
+            super.handleMessage(msg);
+            switch (msg.what) {
+                case 1:
+                  int blances = (int) msg.obj;
+                    mTvPrice.setTextSize(40);
+                    mTvPrice.setText("票价：0.02元");
+                    mTvBalance.setVisibility(View.VISIBLE);
+                    PlaySound.play(PlaySound.dang, 0);
+                    mTvBalance.setText("余额：" + (double) blances / 100 + "元");
+                    handler.postDelayed(runnable, 3000);
+                    break;
+                case 2:
+
+                    mTvPrice.setTextSize(40);
+                    mTvPrice.setText("票价：0.01元");
+                    mTvBalance.setVisibility(View.VISIBLE);
+                    PlaySound.play(PlaySound.dang, 0);
+                    mTvBalance.setText("余额：" + ((DataConversionUtils.byteArrayToInt(icCardBeen.getPurOriMoney(), false) - DataConversionUtils.byteArrayToInt(icCardBeen.getPurSub())) / 100) + "元");
+                    handler.postDelayed(runnable, 3000);
+                    break;
+                case 3:
+                    break;
+                default:
+                    break;
+            }
+        }
+    };
+    Runnable runnable = new Runnable() {
+        @Override
+        public void run() {
+            mTvBalance.setVisibility(View.GONE);
+            mTvPrice.setTextSize(65);
+            mTvPrice.setText("票价：2元");
+        }
+    };
+    private long times = 0;
 
     private void ICExpance() {
         try {
+            byte[] id = CpuASearchCardSaks();
+            if (id == null) {
+                Log.i("stw", "CPUA寻卡失败 ");
+                initR6();
+                isExpense = 1;
+                return;
+            }
             //读卡操作后，可转化为String型便于查看
-            byte[] eCard = mIR6Manager.ReadCard();
-            if (eCard == null) {
-                Log.e(TAG, "writeAndRead读卡失败 , ");
+            resultBytes = cpuAR6Manager.ReadCard();
+            if (resultBytes == null) {
+                Log.e(tag, "CPUA读卡失败 , ");
+                initR6();
+                isExpense = 1;
                 return;
             }
-            Log.d(TAG, "fuhexiaofei: 消费记录 tlv 3031 send " + DataConversionUtils.byteArrayToString(fuhe_tlv));
-            retvalue = ICSendAPDU(fuhe_tlv);
-            if (retvalue == null) {
+            Log.d(tag, "fuhexiaofei: 消费记录 tlv 3031 send " + DataConversionUtils.byteArrayToString(fuhe_tlv));
+            resultBytes = ICSendAPDU(fuhe_tlv);
+            Log.d("ssssssss", "ICExpance1111: " + (System.currentTimeMillis() - times));
+            times = System.currentTimeMillis();
+            if (resultBytes == null) {
+                initR6();
+                Log.e(tag, "消费记录 tlv 3031 error ");
                 isExpense = 1;
-                Log.e(TAG, "消费记录 tlv 3031 error ");
                 return;
             }
-            byte[] testTlv = cutBytes(retvalue, 0, retvalue.length - 2);
-            Log.d(TAG, "消费记录 tlv 3031 return :" + DataConversionUtils.byteArrayToString(testTlv));
-            tvShowMsg.append("解析 TLV0105 return ：" + DataConversionUtils.byteArrayToString(testTlv) + "\n");
-            if (Arrays.equals(cutBytes(retvalue, retvalue.length - 2, 2), APDU_RESULT_FAILE)) {//黑名单
-                tvShowMsg.append("黑名单（3031）\n");
-            } else if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
+            byte[] testTlv = cutBytes(resultBytes, 0, resultBytes.length - 2);
+
+            if (Arrays.equals(cutBytes(resultBytes, resultBytes.length - 2, 2), APDU_RESULT_FAILE)) {//黑名单
+
+            } else if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
                 isExpense = 1;
-                tvShowMsg.append("切换电子钱包应用失败（0105）\n");
+                initR6();
+                Log.e(tag, "消费记录 tlv 3031 return :" + DataConversionUtils.byteArrayToString(testTlv));
             }
+            Log.d("ssssssss", "ICExpance1...22222: " + (System.currentTimeMillis() - times));
+            times = System.currentTimeMillis();
 
             boolean isFlag = true;
             List<String> listTlv = new ArrayList<>();
             TLV.anaTagSpeedata(testTlv, listTlv);
+            systemTime = getDateTime();//获取交易时间
+            Log.d("ssssssss", "ICExpance2222: " + (System.currentTimeMillis() - times));
+            times = System.currentTimeMillis();
             for (int i = 0; i < listTlv.size(); i++) {
-                Log.d(TAG, "test: 解析TLV" + i + "&&&&&&&" + listTlv.get(i).toString());
                 //判断解析出来的tlv 61目录里是否 是否存在A000000632010105
                 if (listTlv.get(i).equals("A000000632010105")) {
-                    // TODO: 2018/8/17  APDU
                     isFlag = false;
-                    systemTime = getDateTime();//获取交易时间
                     String select_ic = "00A4040008" + listTlv.get(i);
-                    Log.d(TAG, "test: 解析到TLV发送0105 send：" + select_ic);
-                    tvShowMsg.append("解析到TLV发送0105 send： " + select_ic + "\n");
-                    byte[] ELECT_DIANZIQIANBAO = DataConversionUtils.HexString2Bytes(select_ic);
-                    retvalue = ICSendAPDU(ELECT_DIANZIQIANBAO);//选择电子钱包应用
+                    Log.d(tag, "test: 解析到TLV发送0105 send：" + select_ic);
+                    byte[] selectDianziqianbao = DataConversionUtils.HexString2Bytes(select_ic);
+                    resultBytes = ICSendAPDU(selectDianziqianbao);//选择电子钱包应用
                     break;
                 }
             }
 
             if (isFlag) {
-                systemTime = getDateTime();//获取交易时间
-                tvShowMsg.append("默认发送 0105 send： " + DataConversionUtils.byteArrayToString(ic_file) + "\n");
-                Log.d(TAG, "test: 默认发送 0105 send ：" + DataConversionUtils.byteArrayToString(ic_file));
-                retvalue = ICSendAPDU(ic_file);//选择电子钱包应用
+                Log.d(tag, "test: 默认发送 0105 send ：" + DataConversionUtils.byteArrayToString(ic_file));
+                resultBytes = ICSendAPDU(ic_file);//选择电子钱包应用
             }
-            if (retvalue == null) {
+
+            if (resultBytes == null) {
+                initR6();
                 isExpense = 1;
                 return;
             }
-            Log.d(TAG, "test: 0105 return： " + DataConversionUtils.byteArrayToString(retvalue));
-            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
 
+            Log.d(tag, "test: 0105 return： " + DataConversionUtils.byteArrayToString(resultBytes));
+            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
                 isExpense = 1;
-                tvShowMsg.append("切换电子钱包应用失败（0105）\n");
+                initR6();
                 return;
             }
-            tvShowMsg.append("发送（0105）选电子钱包 返回：" + DataConversionUtils.byteArrayToString(retvalue) + "\n");
-
-            Log.d(TAG, "===读15文件 === sebd" + DataConversionUtils.byteArrayToString(ic_read_file));
+            Log.d(tag, "===读15文件 === sebd" + DataConversionUtils.byteArrayToString(ic_read_file));
+            Log.d("ssssssss", "ICExpance1...@@@@@@@@@@: " + (System.currentTimeMillis() - times));
+            times = System.currentTimeMillis();
             //读应用下公共应用基本信息文件指令
-            retvalue = ICSendAPDU(ic_read_file);
-            if (retvalue[0] == 1 || retvalue[0] == 3) {
+            resultBytes = ICSendAPDU(ic_read_file);
+            if (resultBytes == null) {
+                isExpense = 1;
+                initR6();
+                return;
+            }
+            Log.d("ssssssss", "ICExpance1...#######: " + (System.currentTimeMillis() - times));
+            times = System.currentTimeMillis();
+            Log.d(tag, "===IC读15文件 === retur:" + DataConversionUtils.byteArrayToString(resultBytes));
+            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
+                initR6();
                 isExpense = 1;
                 return;
             }
-            Log.d(TAG, "===IC读15文件 === retur:" + DataConversionUtils.byteArrayToString(retvalue));
-            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
-
-                isExpense = 1;
-                tvShowMsg.append("IC读15文件 错误 ：" + DataConversionUtils.byteArrayToString(retvalue) + "\n");
-                return;
-            }
-            tvShowMsg.append("IC读15文件 return ：" + DataConversionUtils.byteArrayToString(retvalue) + "\n");
             //02313750FFFFFFFF0201 031049906000000000062017010820991231000090000000000000000000
-            Log.e(TAG, "ICExpance:arraycopy开始 ");
-            System.arraycopy(retvalue, 12, cardId, 0, 8);
-            Log.e(TAG, "ICExpance:arraycopy 停止");
-            System.arraycopy(retvalue, 0, file15_8, 0, 8);
-            System.arraycopy(retvalue, 2, city, 0, 2);
-            Log.d(TAG, "===卡应用序列号 ===" + DataConversionUtils.byteArrayToString(cardId));
-
+            System.arraycopy(resultBytes, 12, cardId, 0, 8);
+            System.arraycopy(resultBytes, 0, file15_8, 0, 8);
+            System.arraycopy(resultBytes, 2, city, 0, 2);
+            Log.d(tag, "===卡应用序列号 ===" + DataConversionUtils.byteArrayToString(cardId));
+            Log.d("ssssssss", "ICExpance1...@@@@@@@@@@: " + (System.currentTimeMillis() - times));
+            times = System.currentTimeMillis();
             //读17文件
             byte[] IC_READ17_FILE = {0x00, (byte) 0xB0, (byte) 0x97, 0x00, 0x00};
-            Log.d(TAG, "test: 读17文件 00b0 send:" + DataConversionUtils.byteArrayToString(IC_READ17_FILE));
-            retvalue = ICSendAPDU(IC_READ17_FILE);
-            if (retvalue == null) {
+            Log.d(tag, "test: 读17文件 00b0 send:" + DataConversionUtils.byteArrayToString(IC_READ17_FILE));
+            resultBytes = ICSendAPDU(IC_READ17_FILE);
+            if (resultBytes == null) {
+                initR6();
                 isExpense = 1;
                 return;
             }
-            Log.d(TAG, "===IC读17文件 === return:" + DataConversionUtils.byteArrayToString(retvalue));
-            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
+            Log.d(tag, "===IC读17文件 === return:" + DataConversionUtils.byteArrayToString(resultBytes));
+            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
                 isExpense = 1;
-                tvShowMsg.append("IC读17文件错误：\n");
+                initR6();
                 return;
             }
-            tvShowMsg.append("IC读17文件返回：" + DataConversionUtils.byteArrayToString(retvalue) + "\n");
-            Log.d(TAG, "test: IC读1E文件 00b2 send  00B201F400");
-            retvalue = ICSendAPDU(DataConversionUtils.HexString2Bytes("00B201F400"));
-            if (retvalue == null) {
-                isExpense = 1;
-                return;
-            }
-            Log.d(TAG, "test: IC读1E文件 00b2 return：" + DataConversionUtils.byteArrayToString(retvalue) + "\n");
-            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
-                isExpense = 1;
-                tvShowMsg.append("IC读1E文件错误：\n");
-                return;
-            }
-            tvShowMsg.append("IC读1E文件返回：" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)) + "\n");
-            Log.d(TAG, "===805c IC余额===  send   :805C030204");
-            retvalue = ICSendAPDU(DataConversionUtils.HexString2Bytes("805C030204"));
-            if (retvalue == null) {
+            Log.d(tag, "test: IC读1E文件 00b2 send  00B201F400");
+            resultBytes = ICSendAPDU(DataConversionUtils.HexString2Bytes("00B201F400"));
+            if (resultBytes == null) {
+                initR6();
                 isExpense = 1;
                 return;
             }
-            Log.d(TAG, "===IC余额 (805c)===  return  :" + DataConversionUtils.byteArrayToString(retvalue));
-            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
+            Log.d(tag, "test: IC读1E文件 00b2 return：" + DataConversionUtils.byteArrayToString(resultBytes) + "\n");
+            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
                 isExpense = 1;
-                tvShowMsg.append("IC卡余额失败：\n");
+                initR6();
                 return;
             }
-            tvShowMsg.append("IC卡余额返回：" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)) + "\n");
+            Log.d(tag, "===805c IC余额===  send :805C030204");
+            resultBytes = ICSendAPDU(DataConversionUtils.HexString2Bytes("805C030204"));
+            if (resultBytes == null) {
+                isExpense = 1;
+                initR6();
+                return;
+            }
+            Log.d(tag, "===IC余额 (805c)===  return  :" + DataConversionUtils.byteArrayToString(resultBytes));
+            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
+                isExpense = 1;
+                initR6();
+                return;
+            }
 
             byte[] INIT_IC_FILE = initICcard();
-            Log.d(TAG, "===IC卡初始化=== 8050 send   :" + DataConversionUtils.byteArrayToString(INIT_IC_FILE));
-            retvalue = ICSendAPDU(INIT_IC_FILE);
-            if (retvalue == null) {
+            Log.d(tag, "===IC卡初始化=== 8050 send   :" + DataConversionUtils.byteArrayToString(INIT_IC_FILE));
+            resultBytes = ICSendAPDU(INIT_IC_FILE);
+            if (resultBytes == null) {
                 isExpense = 1;
+                initR6();
                 return;
             }
-            Log.d(TAG, "===IC卡初始化=== 8050  return:" + DataConversionUtils.byteArrayToString(retvalue));
-            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
+            Log.d(tag, "===IC卡初始化=== 8050  return:" + DataConversionUtils.byteArrayToString(resultBytes));
+            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
                 isExpense = 1;
-                tvShowMsg.append("IC卡初始化失败:\n");
+                initR6();
                 return;
             }
-
-            tvShowMsg.append("IC卡初始化返回: " + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)) + "\n");
-            System.arraycopy(retvalue, 0, blance, 0, 4);
-            System.arraycopy(retvalue, 4, ATC, 0, 2);
-            System.arraycopy(retvalue, 6, keyVersion, 0, 4);
-            flag = retvalue[10];
-            System.arraycopy(retvalue, 11, rondomCpu, 0, 4);
-            Log.d(TAG, "===余额:  " + DataConversionUtils.byteArrayToString(blance));
-            Log.d(TAG, "===CPU卡脱机交易序号:  " + DataConversionUtils.byteArrayToString(ATC));
-            Log.d(TAG, "===密钥版本 : " + (int) flag);
-            Log.d(TAG, "===随机数 : " + DataConversionUtils.byteArrayToString(rondomCpu));
-
+            System.arraycopy(resultBytes, 0, blance, 0, 4);
+            System.arraycopy(resultBytes, 4, ATC, 0, 2);
+            System.arraycopy(resultBytes, 6, keyVersion, 0, 4);
+            flag = resultBytes[10];
+            System.arraycopy(resultBytes, 11, rondomCpu, 0, 4);
+            Log.d(tag, "===余额:  " + DataConversionUtils.byteArrayToString(blance));
+            Log.d(tag, "===CPU卡脱机交易序号:  " + DataConversionUtils.byteArrayToString(ATC));
+            Log.d(tag, "===密钥版本 : " + (int) flag);
+            Log.d(tag, "===随机数 : " + DataConversionUtils.byteArrayToString(rondomCpu));
             byte[] psam_mac1 = initSamForPurchase();
-            Log.d(TAG, "===获取MAC1 8070  send===" + DataConversionUtils.byteArrayToString(psam_mac1));
-            retvalue = PsamSenAPDU(IPsam.PowerType.Psam1, psam_mac1);
-            if (retvalue == null) {
+            Log.d(tag, "===获取MAC1 8070  send===" + DataConversionUtils.byteArrayToString(psam_mac1));
+            resultBytes = PsamSenAPDU(IPsam.PowerType.Psam1, psam_mac1);
+            if (resultBytes == null) {
                 isExpense = 1;
+                initR6();
                 return;
             }
-            byte[] GET_RESPONSE = {0x00, (byte) 0xC0, 0x00, 0x00, (byte) 0xFF};
-            System.arraycopy(retvalue, 1, GET_RESPONSE, 4, 1);
-            retvalue = PsamSenAPDU(IPsam.PowerType.Psam1, GET_RESPONSE);
+            byte[] getResponse = {0x00, (byte) 0xC0, 0x00, 0x00, (byte) 0xFF};
+            System.arraycopy(resultBytes, 1, getResponse, 4, 1);
+            Log.d("ssssssss", "******* " + (System.currentTimeMillis() - times));
+            times = System.currentTimeMillis();
+            resultBytes = PsamSenAPDU(IPsam.PowerType.Psam1, getResponse);
 
-            Log.d(TAG, "===获取MAC1 8070 return:" + DataConversionUtils.byteArrayToString(retvalue) + "   " + retvalue);
-            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
+            Log.d(tag, "===获取MAC1 8070 return:" + DataConversionUtils.byteArrayToString(resultBytes) + "   " + resultBytes);
+            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
                 isExpense = 1;
-                tvShowMsg.append("IC获取MAC1失败:\n");
+                initR6();
                 return;
             }
-            praseMAC1(retvalue);
-            tvShowMsg.append("IC获取MAC1返回：" + DataConversionUtils.byteArrayToString(retvalue) + "\n");
-
-            //80dc
-            String ss = "80DC00F030060000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
-            Log.d(TAG, ss.length() + "===更新1E文件 80dc  send===" + ss);
-            retvalue = ICSendAPDU(DataConversionUtils.HexString2Bytes(ss));
-            if (retvalue == null) {
-                isExpense = 1;
-                return;
-            }
-            Log.d(TAG, "===更新1E文件 return===" + DataConversionUtils.byteArrayToString(retvalue));
-            tvShowMsg.append("更新1E文件 80dc  return: " + DataConversionUtils.byteArrayToString(retvalue) + "\n");
-            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
-                isExpense = 1;
-                tvShowMsg.append("更新1E文件 80dc错误：\n");
-                return;
-            }
+            Log.d("ssssssss", "############# " + (System.currentTimeMillis() - times));
+            times = System.currentTimeMillis();
+            praseMAC1(resultBytes);
+//            //80dc
+//            String ss = "80DC00F030060000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+//            Log.d(tag, ss.length() + "===更新1E文件 80dc  send===" + ss);
+//            resultBytes = ICSendAPDU(DataConversionUtils.HexString2Bytes(ss));
+//            if (resultBytes == null) {
+//                isExpense = 1;
+//                initR6();
+//                return;
+//            }
+//            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
+//                Log.d(tag, "===更新1E文件 return===" + DataConversionUtils.byteArrayToString(resultBytes));
+//                cpuAR6Manager.InitDevice();
+//                isExpense = 1;
+//                initR6();
+//                return;
+//            }
 
             byte[] cmd = getIcPurchase();
-            Log.d(TAG, "===IC卡 8054消费发送===" + DataConversionUtils.byteArrayToString(cmd));
-            retvalue = ICSendAPDU(cmd);
-            if (retvalue == null) {
+            Log.d(tag, "===IC卡 8054消费发送===" + DataConversionUtils.byteArrayToString(cmd));
+            resultBytes = ICSendAPDU(cmd);
+            if (resultBytes == null) {
                 isExpense = 1;
+                initR6();
                 return;
             }
-            Log.d(TAG, "===IC 卡 8054消费返回===" + DataConversionUtils.byteArrayToString(retvalue));
-            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
+            Log.d(tag, "===IC 卡 8054消费返回===" + DataConversionUtils.byteArrayToString(resultBytes));
+            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
                 isExpense = 1;
-                tvShowMsg.append("IC 卡 8054消费返回失败:\n");
+                initR6();
                 return;
             }
-            tvShowMsg.append("IC 卡 8054消费返回:" + DataConversionUtils.byteArrayToString(retvalue) + "\n");
-            byte[] mac2 = cutBytes(retvalue, 0, 8);
+            byte[] mac2 = cutBytes(resultBytes, 0, 8);
             byte[] PSAM_CHECK_MAC2 = checkPsamMac2(mac2);
 
-
-            Log.d(TAG, "===psam卡 8072校验 send===: " + DataConversionUtils.byteArrayToString(PSAM_CHECK_MAC2) + "微智结果：" + retvalue);
-//             retvalue =ICSendAPDU(PSAM_CHECK_MAC2);
-            if (retvalue == null) {
-                isExpense = 1;
-                return;
-            }
-            Log.d(TAG, "===psam卡 8072校验返回===: " + DataConversionUtils.byteArrayToString(retvalue));
-            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
-                isExpense = 1;
-                tvShowMsg.append("=psam卡 8072校验返回失败：\n");
-                return;
-            }
-            tvShowMsg.append("=psam卡 8072校验返回 ：" + DataConversionUtils.byteArrayToString(retvalue) + "\n");
+//            Log.d(tag, "===psam卡 8072校验 send===: " + DataConversionUtils.byteArrayToString(PSAM_CHECK_MAC2) + "微智结果：" + resultBytes);
+//             resultBytes =ICSendAPDU(PSAM_CHECK_MAC2);
+//            if (resultBytes == null) {
+//                isExpense = 1;
+//                initR6();
+//                return;
+//            }
+//            Log.d(tag, "===psam卡 8072校验返回===: " + DataConversionUtils.byteArrayToString(resultBytes));
+//            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
+//                isExpense = 1;
+//                initR6();
+//                return;
+//            }
             isExpense = 1;
+            initR6();
+            Log.d("ssssssss", "ICExpance33333: " + (System.currentTimeMillis() - times));
+            handler.sendMessage(handler.obtainMessage(1, DataConversionUtils.byteArrayToInt(blance)));
             Log.d("times", "ICExpance:=====  消费完成=======");
         } catch (UnsupportedEncodingException e) {
             e.printStackTrace();
+            initR6();
             isExpense = 1;
         }
-
-
     }
+
 
     /**
      * 用户卡(IC卡)交易初始化指令 8050指令
@@ -653,7 +775,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     /**
      * PSAM 卡产生MAC1指令 8070
      *
-     * @return 返回结果为：XXXXXXXX（终端脱机交易序号）XXXXXXXX（MAC1）
+     * @return 返回结果为：XXXXXXXX（终端脱机交易序号）XXXXXXXX（mac1）
      */
     private byte[] initSamForPurchase() {
         byte[] cmd = new byte[42];
@@ -696,10 +818,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         cmd[2] = (byte) 0x01;
         cmd[3] = (byte) 0x00;
         cmd[4] = (byte) 0x0F;
-        System.arraycopy(PSAM_ATC, 0, cmd, 5, 4);
-        //PSAM_ATC 4
+        System.arraycopy(psamAtc, 0, cmd, 5, 4);
+        //psamAtc 4
         System.arraycopy(systemTime, 0, cmd, 9, 7);//系统时间
-        System.arraycopy(MAC1, 0, cmd, 16, 4);
+
+        System.arraycopy(mac1, 0, cmd, 16, 4);
         cmd[20] = 0x08;
         return cmd;
     }
@@ -716,17 +839,17 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     /**
-     * 获取psam MAC1
+     * 获取psam mac1
      *
      * @param data
      */
     private void praseMAC1(byte[] data) {
         if (data.length <= 2) {
-            Log.e(TAG, "===获取MAC1失败===" + HEX.bytesToHex(data));
+            Log.e(tag, "===获取MAC1失败===" + HEX.bytesToHex(data));
             return;
         }
-        System.arraycopy(data, 0, PSAM_ATC, 0, 4);
-        System.arraycopy(data, 4, MAC1, 0, 4);
+        System.arraycopy(data, 0, psamAtc, 0, 4);
+        System.arraycopy(data, 4, mac1, 0, 4);
     }
 
     /**
@@ -767,42 +890,52 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private byte[][] lodkey = new byte[16][6]; //保存读第0扇区 01块返回的 秘钥
     private byte[] actRemaining;
     private int fErr = -1;
+    private byte cardType;
 
     private void M1ICCard() {
+        times = System.currentTimeMillis();
         CInfoF = new TCommInfo();
         CInfoZ = new TCommInfo();
         CInfo = new TCommInfo();
         try {
-            Log.d(TAG, "M1ICCard:m1卡消费开始 ");
+            Log.d(tag, "M1ICCard:m1卡消费开始 ");
             //读取非接卡 SN(UID)信息
-            retvalue = mifareManager.SearchCard();
-            if (retvalue == null) {
-                isExpense = 1;
-                Log.e(TAG, "M1ICCard: 获取UID失败");
+//            resultBytes = mifareR6Manager.SearchCard();
+//            resultBytes = mifareR6Manager.SearchCardSak();
+//
+//            if (resultBytes == null) {
+//                isExpense = 1;
+//                Log.e(TAG, "M1ICCard: 获取UID失败");
+//                return;
+//            }
+//            cardType = resultBytes[0];
+//            snUid = cutBytes(resultBytes, 1, resultBytes.length - 1);
+//            snUid = resultBytes;
+            if (snUid == null) {
+                Log.d(tag, "M1ICCard: getUID==" + HEX.bytesToHex(snUid));
                 return;
             }
-            snUid = retvalue;
             icCardBeen.setSnr(snUid);
-            Log.d(TAG, "M1ICCard: getUID==" + HEX.bytesToHex(snUid));
+            Log.d(tag, "M1ICCard: getUID==" + HEX.bytesToHex(snUid));
             byte[] key = new byte[6];
             System.arraycopy(snUid, 0, key, 0, 4);
             System.arraycopy(snUid, 0, key, 4, 2);
 
             //认证1扇区第4块
-            int a = mifareManager.AuthenticationCardByKey(AUTH_TYPEA, snUid, 4, key);
+            int a = mifareR6Manager.AuthenticationCardByKey(AUTH_TYPEA, snUid, 4, key);
             if (a != 0) {
-                Log.e(TAG, "M1ICCard: 认证认证1扇区第4块失败");
+                Log.e(tag, "M1ICCard: 认证认证1扇区第4块失败");
                 isExpense = 1;
                 return;
             }
-            retvalue = mifareManager.ReadBlock(4);
-            if (retvalue == null) {
+            resultBytes = mifareR6Manager.ReadBlock(4);
+            if (resultBytes == null) {
                 isExpense = 1;
-                Log.e(TAG, "M1ICCard: 读取1扇区第4块失败");
+                Log.e(tag, "M1ICCard: 读取1扇区第4块失败");
                 return;
             }
-            byte[] bytes04 = retvalue;
-            Log.d(TAG, "M1ICCard: 读取1扇区第4块返回：" + HEX.bytesToHex(bytes04));
+            byte[] bytes04 = resultBytes;
+            Log.d(tag, "M1ICCard: 读取1扇区第4块返回：" + HEX.bytesToHex(bytes04));
 
             icCardBeen.setIssueSnr(cutBytes(bytes04, 0, 8));
             icCardBeen.setCityNr(cutBytes(bytes04, 0, 2));
@@ -814,96 +947,98 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             icCardBeen.setfBlackCard(0);//黑名单
             switch (icCardBeen.getfStartUse()[0]) {//判断启用标志
                 case (byte) 0x01://未启用
-                    Log.e(TAG, "M1ICCard: 启用标志未启用");
+                    Log.e(tag, "M1ICCard: 启用标志未启用");
                     isExpense = 1;
                     return;
                 case (byte) 0x02://正常
                     // TODO: 2018/8/29
                     break;
                 case (byte) 0x03://停用
-                    Log.e(TAG, "M1ICCard: 启用标志停用");
+                    Log.e(tag, "M1ICCard: 启用标志停用");
                     isExpense = 1;
                     return;
                 case (byte) 0x04://黑名单
-                    Log.e(TAG, "M1ICCard: 启用标志黑名单");
+                    Log.e(tag, "M1ICCard: 启用标志黑名单");
                     isExpense = 1;
                     icCardBeen.setfBlackCard(1);
                     return;
+                default:
+                    break;
             }
 
             //读1扇区05块数据
-            retvalue = mifareManager.ReadBlock(5);
-            if (retvalue == null) {
+            resultBytes = mifareR6Manager.ReadBlock(5);
+            if (resultBytes == null) {
                 isExpense = 1;
-                Log.e(TAG, "M1ICCard: 读1扇区05块数据失败");
+                Log.e(tag, "M1ICCard: 读1扇区05块数据失败");
                 return;
             }
-            byte[] bytes05 = retvalue;
-            Log.d(TAG, "M1ICCard: 读1扇区05块数据：" + HEX.bytesToHex(bytes05));
+            byte[] bytes05 = resultBytes;
+            Log.d(tag, "M1ICCard: 读1扇区05块数据：" + HEX.bytesToHex(bytes05));
             icCardBeen.setIssueDate(cutBytes(bytes05, 0, 4));
             icCardBeen.setEndUserDate(cutBytes(bytes05, 4, 4));
             icCardBeen.setStartUserDate(cutBytes(bytes05, 8, 4));
 
             //读1扇区06块数据
-            retvalue = mifareManager.ReadBlock(6);
-            if (retvalue == null) {
-                Log.e(TAG, "M1ICCard: 读1扇区06块数据失败");
+            resultBytes = mifareR6Manager.ReadBlock(6);
+            if (resultBytes == null) {
+                Log.e(tag, "M1ICCard: 读1扇区06块数据失败");
                 isExpense = 1;
                 return;
             }
-            byte[] bytes06 = retvalue;
-            Log.d(TAG, "M1ICCard: 读1扇区06块数据返回：" + HEX.bytesToHex(bytes06));
+            byte[] bytes06 = resultBytes;
+            Log.d(tag, "M1ICCard: 读1扇区06块数据返回：" + HEX.bytesToHex(bytes06));
             icCardBeen.setPurIncUtc(cutBytes(bytes06, 0, 6));//转UTC时间
             icCardBeen.setPurIncMoney(cutBytes(bytes06, 9, 2));
 
             //第0扇区 01块认证
-            a = mifareManager.AuthenticationCardByKey(AUTH_TYPEA, snUid, 1, new byte[]{(byte) 0xA0, (byte) 0xA1, (byte) 0xA2, (byte) 0xA3, (byte) 0xA4, (byte) 0xA5});
+            a = mifareR6Manager.AuthenticationCardByKey(AUTH_TYPEA, snUid, 1, new byte[]{(byte) 0xA0, (byte) 0xA1, (byte) 0xA2, (byte) 0xA3, (byte) 0xA4, (byte) 0xA5});
             if (a != 0) {
-                Log.e(TAG, "M1ICCard: 第0扇区01块认证失败");
+                Log.e(tag, "M1ICCard: 第0扇区01块认证失败");
                 isExpense = 1;
                 return;
             }
-            retvalue = mifareManager.ReadBlock(1);//读第0扇区第一块秘钥
-            if (retvalue == null) {
-                Log.e(TAG, "M1ICCard: 读第0扇区01块失败");
+            resultBytes = mifareR6Manager.ReadBlock(1);//读第0扇区第一块秘钥
+            if (resultBytes == null) {
+                Log.e(tag, "M1ICCard: 读第0扇区01块失败");
                 isExpense = 1;
                 return;
             }
 
-            byte[] bytes01 = retvalue;
-            Log.d(TAG, "M1ICCard: 读第0扇区01块：" + HEX.bytesToHex(bytes01));
+            byte[] bytes01 = resultBytes;
+            Log.d(tag, "M1ICCard: 读第0扇区01块：" + HEX.bytesToHex(bytes01));
             //扇区标识符
             secF = bytes01;
             //算秘钥指令
             String sendCmd = "80FC010110" + HEX.bytesToHex(icCardBeen.getCityNr()) + DataConversionUtils.byteArrayToString(icCardBeen.getSnr()) + HEX.bytesToHex(cutBytes(icCardBeen.getIssueSnr(), 6, 2)) + HEX.bytesToHex(icCardBeen.getMackNr())
                     + HEX.bytesToHex(cutBytes(secF, 2, 2)) + HEX.bytesToHex(cutBytes(secF, 6, 2));
-            Log.d(TAG, "M1ICCard:psam计算秘钥指令 ：" + sendCmd);
+            Log.d(tag, "M1ICCard:psam计算秘钥指令 ：" + sendCmd);
             //psam卡计算秘钥
-            retvalue = PsamSenAPDU(IPsam.PowerType.Psam2, DataConversionUtils.HexString2Bytes(sendCmd));
-            if (retvalue == null) {
-                Log.e(TAG, "M1ICCard: psam计算秘钥指令错误");
+            resultBytes = PsamSenAPDU(IPsam.PowerType.Psam2, DataConversionUtils.HexString2Bytes(sendCmd));
+            if (resultBytes == null) {
+                Log.e(tag, "M1ICCard: psam计算秘钥指令错误");
                 isExpense = 1;
                 return;
             }
-            if (!Arrays.equals(new byte[]{0x61, 0x18}, cutBytes(retvalue, retvalue.length - 2, 2))) {
-                Log.e(TAG, "M1ICCard: psam计算秘钥指令错误");
+            if (!Arrays.equals(new byte[]{0x61, 0x18}, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
+                Log.e(tag, "M1ICCard: psam计算秘钥指令错误");
                 isExpense = 1;
                 return;
             }
 
             byte[] GET_RESPONSE = {0x00, (byte) 0xC0, 0x00, 0x00, (byte) 0xFF};
-            System.arraycopy(retvalue, 1, GET_RESPONSE, 4, 1);
-            retvalue = PsamSenAPDU(IPsam.PowerType.Psam2, GET_RESPONSE);
-            if (retvalue == null) {
-                Log.e(TAG, "错误");
+            System.arraycopy(resultBytes, 1, GET_RESPONSE, 4, 1);
+            resultBytes = PsamSenAPDU(IPsam.PowerType.Psam2, GET_RESPONSE);
+            if (resultBytes == null) {
+                Log.e(tag, "错误");
                 return;
             }
-            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(retvalue, retvalue.length - 2, 2))) {
-                Log.d(TAG, " psam计算秘钥指令错误非9000" + DataConversionUtils.byteArrayToString(cutBytes(retvalue, retvalue.length - 2, 2)));
+            if (!Arrays.equals(APDU_RESULT_SUCCESS, cutBytes(resultBytes, resultBytes.length - 2, 2))) {
+                Log.d(tag, " psam计算秘钥指令错误非9000" + DataConversionUtils.byteArrayToString(cutBytes(resultBytes, resultBytes.length - 2, 2)));
                 return;
             }
-            byte[] result = cutBytes(retvalue, 0, retvalue.length - 2);
-            Log.d(TAG, "M1ICCard: psam计算秘钥返回：" + HEX.bytesToHex(result));
+            byte[] result = cutBytes(resultBytes, 0, resultBytes.length - 2);
+            Log.d(tag, "M1ICCard: psam计算秘钥返回：" + HEX.bytesToHex(result));
             //3/4/5扇区秘钥相同
             lodkey[2] = cutBytes(result, 0, 6);//第2扇区秘钥
             lodkey[3] = cutBytes(result, 6, 6);//第3扇区秘钥
@@ -914,34 +1049,34 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
             //第6扇区24 块认证
             byte[] lodKey6 = lodkey[6];
-            a = mifareManager.AuthenticationCardByKey(AUTH_TYPEA, snUid, 24, lodKey6);
+            a = mifareR6Manager.AuthenticationCardByKey(AUTH_TYPEA, snUid, 24, lodKey6);
             if (a != 0) {
-                Log.e(TAG, "M1ICCard: 第6扇区24 块认证错误");
+                Log.e(tag, "M1ICCard: 第6扇区24 块认证错误");
                 isExpense = 1;
                 return;
             }
             //读6扇区第24块
-            retvalue = mifareManager.ReadBlock(24);
-            if (retvalue == null) {
-                Log.e(TAG, "M1ICCard: 读6扇区第24块失败");
+            resultBytes = mifareR6Manager.ReadBlock(24);
+            if (resultBytes == null) {
+                Log.e(tag, "M1ICCard: 读6扇区第24块失败");
                 isExpense = 1;
                 return;
             }
-            byte[] bytes24 = retvalue;
+            byte[] bytes24 = resultBytes;
 
 //            System.arraycopy(new byte[]{(byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00}, 0, bytes24, 0, 8);
 //            System.arraycopy(new byte[]{(byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff}, 0, bytes24, 8, 7);
-//            a = mifareManager.WriteBlock(24, bytes24);
-//            a =mifareManager.WriteBlock(25, bytes24);
-//            retvalue = mifareManager.ReadBlock(24);
-//            if (retvalue == null) {
+//            a = mifareR6Manager.WriteBlock(24, bytes24);
+//            a =mifareR6Manager.WriteBlock(25, bytes24);
+//            resultBytes = mifareR6Manager.ReadBlock(24);
+//            if (resultBytes == null) {
 //                Log.e(TAG, "M1ICCard: 读6扇区第24块失败");
 //                isExpense = 1;
 //                return;
 //            }
-//            bytes24 = retvalue;
+//            bytes24 = resultBytes;
 
-            Log.d(TAG, "M1ICCard: 读6扇区第24块返回：" + HEX.bytesToHex(bytes24));
+            Log.d(tag, "M1ICCard: 读6扇区第24块返回：" + HEX.bytesToHex(bytes24));
             byte[] dtZ = bytes24;
             byte chk = 0;
             for (int i = 0; i < 16; i++) {//异或操作
@@ -967,15 +1102,15 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             CInfoZ.fFileNr = dtZ[7];
             //副本  有效性
             //读6扇区第25块
-            retvalue = mifareManager.ReadBlock(25);
-            if (retvalue == null) {
-                Log.e(TAG, "M1ICCard:读6扇区第25块失败 ");
+            resultBytes = mifareR6Manager.ReadBlock(25);
+            if (resultBytes == null) {
+                Log.e(tag, "M1ICCard:读6扇区第25块失败 ");
                 isExpense = 1;
                 return;
             }
-            byte[] bytes25 = retvalue;
+            byte[] bytes25 = resultBytes;
             byte[] dtF = bytes25;
-            Log.d(TAG, "M1ICCard:读6扇区第25块: " + DataConversionUtils.byteArrayToString(bytes25));
+            Log.d(tag, "M1ICCard:读6扇区第25块: " + DataConversionUtils.byteArrayToString(bytes25));
             for (int i = 0; i < 16; i++) {
                 chk ^= dtF[i];
             }
@@ -1002,7 +1137,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             } else if (CInfoF.fValid == 1) {
                 CInfo = CInfoF;
             } else {
-                Log.e(TAG, "M1ICCard: 24 25块有效标志错误 返回0");
+                Log.e(tag, "M1ICCard: 24 25块有效标志错误 返回0");
                 isExpense = 1;
                 CInfo = CInfoF;
 //                return;
@@ -1010,17 +1145,25 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
             if ((CInfoZ.fValid == 1 && (CInfoZ.fBlack == 4)) || (CInfoF.fValid == 1 && (CInfoF.fBlack == 4))) {
                 icCardBeen.setfBlackCard(1);//黑名单 报语音
-                Log.e(TAG, "M1ICCard: 黑名单");
+                Log.e(tag, "M1ICCard: 黑名单");
+                isExpense = 1;
+                //語音 黑名單
+                return;
+            }
+            if (!BackupManage(8)) {
                 isExpense = 1;
                 return;
             }
-            BackupManage(8);
             if (!writeCardRcd()) {
                 isExpense = 1;
                 return;
             }
+            Log.d("ssssssss", "M1卡time: " + (System.currentTimeMillis() - times));
+            handler.sendMessage(handler.obtainMessage(2));
         } catch (UnsupportedEncodingException e) {
             e.printStackTrace();
+            isExpense = 1;
+            return;
         }
     }
 
@@ -1028,78 +1171,78 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         //第二扇区08 块认证
 
         byte[] lodKey2 = lodkey[blk / 4];
-        int a = mifareManager.AuthenticationCardByKey(AUTH_TYPEA, snUid, blk, lodKey2);
+        int a = mifareR6Manager.AuthenticationCardByKey(AUTH_TYPEA, snUid, blk, lodKey2);
         if (a != 0) {
-            Log.e(TAG, "M1ICCard:认证2扇区第8块失败：");
+            Log.e(tag, "M1ICCard:认证2扇区第8块失败：");
             isExpense = 1;
             return false;
         }
         //读2扇区第9块
-        retvalue = mifareManager.ReadBlock(9);
-        if (retvalue == null) {
-            Log.e(TAG, "M1ICCard: 读2扇区第9块失败");
+        resultBytes = mifareR6Manager.ReadBlock(9);
+        if (resultBytes == null) {
+            Log.e(tag, "M1ICCard: 读2扇区第9块失败");
             isExpense = 1;
             return false;
         }
-        byte[] bytes09 = retvalue;
-        Log.d(TAG, "M1ICCard:读2扇区第9块返回： " + HEX.bytesToHex(bytes09));
+        byte[] bytes09 = resultBytes;
+        Log.d(tag, "M1ICCard:读2扇区第9块返回： " + HEX.bytesToHex(bytes09));
 
         //读2扇区第10块
         //读2扇区第10块
-        retvalue = mifareManager.ReadBlock(10);
-        if (retvalue == null) {
-            Log.e(TAG, "M1ICCard:读2扇区第10块失败：");
+        resultBytes = mifareR6Manager.ReadBlock(10);
+        if (resultBytes == null) {
+            Log.e(tag, "M1ICCard:读2扇区第10块失败：");
             isExpense = 1;
             return false;
         }
-        byte[] bytes10 = retvalue;
-        Log.d(TAG, "M1ICCard:读2扇区第10块返回： " + HEX.bytesToHex(bytes10));
+        byte[] bytes10 = resultBytes;
+        Log.d(tag, "M1ICCard:读2扇区第10块返回： " + HEX.bytesToHex(bytes10));
 
         if (ValueBlockValid(bytes09)) {
-            Log.d(TAG, "M1ICCard: 2区10块过");
+            Log.d(tag, "M1ICCard: 2区09块过");
             //判断2区9块10块数据是否一致
             if (!Arrays.equals(bytes09, bytes10)) {
-                a = mifareManager.restoreBlock(9);
+                a = mifareR6Manager.restoreBlock(9);
                 if (a != 0) {
-                    Log.e(TAG, "M1ICCard:restoreBlock失败");
+                    isExpense = 1;
+                    Log.e(tag, "M1ICCard:restoreBlock失败");
                 }
-                a = mifareManager.transferBlock(10);
+                a = mifareR6Manager.transferBlock(10);
                 if (a != 0) {
-                    Log.e(TAG, "M1ICCard:transferBlock失败");
+                    Log.e(tag, "M1ICCard:transferBlock失败");
+                    isExpense = 1;
                 }
             }
         } else {
             if (ValueBlockValid(bytes10)) {
-                Log.d(TAG, "M1ICCard: 2区10块过 ");
+                Log.d(tag, "M1ICCard: 2区10块过 ");
                 if (!Arrays.equals(bytes10, bytes09)) {
                     bytes09 = bytes10;
-                    a = mifareManager.restoreBlock(10);
+                    a = mifareR6Manager.restoreBlock(10);
                     if (a != 0) {
-                        Log.e(TAG, "M1ICCard:restoreBlock失败");
+                        Log.e(tag, "M1ICCard:restoreBlock失败");
+                        isExpense = 1;
                         return false;
                     }
-                    a = mifareManager.transferBlock(9);
+                    a = mifareR6Manager.transferBlock(9);
                     if (a != 0) {
-                        Log.e(TAG, "M1ICCard:transferBlock失败");
+                        Log.e(tag, "M1ICCard:transferBlock失败");
+                        isExpense = 1;
                         return false;
                     }
                 }
             } else {
                 isExpense = 1;
-                Log.d(TAG, "M1ICCard: 2区10块错返回 ");
+                Log.d(tag, "M1ICCard: 2区10块错返回 ");
                 return false;
             }
         }
+        //原额
         byte[] yue09 = cutBytes(bytes09, 0, 4);
-        //原额 倒叙
-//            actRemaining = ReverseSelf(yue09);
-        actRemaining = yue09;
-        icCardBeen.setPurOriMoney(actRemaining);
+        icCardBeen.setPurOriMoney(yue09);
         icCardBeen.setPurSub(new byte[]{0x00, 0x00, 0x00, 0x01});//定义消费金额
-        Log.d(TAG, "M1ICCard: " + HEX.bytesToHex(actRemaining));
+        Log.d(tag, "M1ICCard: " + HEX.bytesToHex(yue09));
         return true;
-
-
     }
 
     /**
@@ -1131,19 +1274,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             CInfo.cPtr = 0;
         }
         int blk = RcdBlkIndex[CInfo.cPtr];//当前交易记录块
-        Log.d(TAG, "writeCardRcd: 当前交易记录块：" + blk);
+        Log.d(tag, "writeCardRcd: 当前交易记录块：" + blk);
 
         CInfo.cPtr = (byte) (CInfo.cPtr == 8 ? 0 : CInfo.cPtr + 1);//
         byte[] ulDevUTC = DataConversionUtils.HexString2Bytes(DataUtils.getUTCtimes());//获取UTC时间
-//        if (tCardOpDu.ucSec != 2) {
-//            VarToArr( & RcdToCard[4], tCardOpDu.YueOriMoney, 4);
-//            VarToArr( & RcdToCard[8], tCardOpDu.YueSub, 3);
-//            RcdToCard[11] = 2;
-//            CInfo.fProc = 3;
-//            CInfo.iYueCount = CInfo.iYueCount + 1;
-//        } else {
         byte[] RcdToCard = new byte[16]; //写卡指令
-
         System.arraycopy(ulDevUTC, 0, RcdToCard, 0, 4);
         System.arraycopy(icCardBeen.getPurOriMoney(), 0, RcdToCard, 4, 4);//获取消费前原额
         System.arraycopy(icCardBeen.getPurSub(), 1, RcdToCard, 8, 3);//获取本次消费金额
@@ -1153,8 +1288,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         RcdToCard[13] = 0x10;
         RcdToCard[14] = 0x00;
         RcdToCard[15] = 0x01;
+
         CInfo.fProc = 1;//进程标志
-        Log.d(TAG, "writeCardRcd: 本次交易记录指令：" + HEX.bytesToHex(RcdToCard));
+        Log.d(tag, "writeCardRcd: 本次交易记录指令：" + HEX.bytesToHex(RcdToCard));
         int count = DataConversionUtils.byteArrayToInt(CInfo.iPurCount) + 1;
         byte[] result = new byte[2];
         result[0] = (byte) ((count >> 8) & 0xFF);
@@ -1162,40 +1298,39 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         CInfo.iPurCount = result;
 
         for (; ; ) {
-
             //step 1 改写24 25块数据
             if (!Modify_InfoArea(24)) {
-                Log.e(TAG, "writeCardRcd: 改写24块错误");
+                Log.e(tag, "writeCardRcd: 改写24块错误");
                 return false;
             }
             //step 2
             byte[] lodKeys = lodkey[blk / 4];
-            int a = mifareManager.AuthenticationCardByKey(AUTH_TYPEA, snUid, blk, lodKeys);
+            int a = mifareR6Manager.AuthenticationCardByKey(AUTH_TYPEA, snUid, blk, lodKeys);
             if (a != 0) {
                 return false;
             }
             //写卡  将消费记录写入消费记录区
-            a = mifareManager.WriteBlock(blk, RcdToCard);
+            a = mifareR6Manager.WriteBlock(blk, RcdToCard);
 
             if (a != 0) {
-                Log.e(TAG, "writeCardRcd: 将消费记录写入消费记录区错误 块为" + blk);
+                Log.e(tag, "writeCardRcd: 将消费记录写入消费记录区错误 块为" + blk);
                 return false;
             }
             //消费记录区读取
-            retvalue = mifareManager.ReadBlock(blk);
-            if (retvalue == null) {
-                Log.e(TAG, "writeCardRcd: 读取消费记录区错误");
+            resultBytes = mifareR6Manager.ReadBlock(blk);
+            if (resultBytes == null) {
+                Log.e(tag, "writeCardRcd: 读取消费记录区错误");
                 return false;
             }
-            byte[] RcdInCard = retvalue;
-            Log.d(TAG, "writeCardRcd: 读当前消费记录区数据：" + HEX.bytesToHex(RcdInCard));
+            byte[] RcdInCard = resultBytes;
+            Log.d(tag, "writeCardRcd: 读当前消费记录区数据：" + HEX.bytesToHex(RcdInCard));
             if (!Arrays.equals(RcdInCard, RcdToCard)) {
-                Log.e(TAG, "writeCardRcd: 读数据不等于消费返回错误");
+                Log.e(tag, "writeCardRcd: 读数据不等于消费返回错误");
                 return false;
             }
             byte[] bytes = new byte[16];
             if (Arrays.equals(RcdInCard, bytes)) {//判断是否 读回==00
-                Log.e(TAG, "writeCardRcd: 读数据不等于消费返回0错误");
+                Log.e(tag, "writeCardRcd: 读数据不等于消费返回0错误");
                 return false;
             }
 
@@ -1203,84 +1338,80 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 //            PrepareRecord(tCardOpDu.ucSec == 2 ? 1 : 3);   1代表 钱包灰记录 3 月票灰记录
             fErr = 1;
             if (!Modify_InfoArea(25)) {
-                Log.e(TAG, "writeCardRcd: 改写25块错误");
-                return false;                  // 改写25块，不成功退出
+                Log.e(tag, "writeCardRcd: 改写25块错误");
+                return false;             // 改写25块，不成功退出
             }
             //step 4
             //认证2扇区8块
             lodKeys = lodkey[2];
-            a = mifareManager.AuthenticationCardByKey(AUTH_TYPEA, snUid, 8, lodKeys);
+            a = mifareR6Manager.AuthenticationCardByKey(AUTH_TYPEA, snUid, 8, lodKeys);
             if (a != 0) {
                 return false;
             }
 
-            //step 5
-//            if (tCardOpDu.ucSec != 2) {
-//                for (i = 0; i < 4; i++)
-//                    dtZ[i] = (tCardOpDu.ActYueSub >> (8 * i));
-//            } else {
-            byte[] dtZ = icCardBeen.getPurSub();//获取消费金额 倒叙
-//            }
-
             //执行消费 将消费金额带入
-            int mon = DataConversionUtils.byteArrayToInt(dtZ);
-            a = mifareManager.DecrementBlockValue(9, 1);
+            int purSub = DataConversionUtils.byteArrayToInt(icCardBeen.getPurSub());
+            a = mifareR6Manager.DecrementBlockValue(9, purSub);
             if (a != 0) {
-                Log.e(TAG, "writeCardRcd: 执行消费错误");
+                Log.e(tag, "writeCardRcd: 执行消费错误");
                 return false;
             }
             //执行 读出 现在原额
-            retvalue = mifareManager.ReadBlock(9);
-            if (retvalue == null) {
-                Log.e(TAG, "writeCardRcd: 读原额错误");
+            resultBytes = mifareR6Manager.ReadBlock(9);
+            if (resultBytes == null) {
+                Log.e(tag, "writeCardRcd: 读原额错误");
                 return false;
             }
-            dtZ = retvalue;//本次消费后的原额
-            Log.d(TAG, "writeCardRcd:正本读09块返回：" + HEX.bytesToHex(dtZ));
+            byte[] dtZ = resultBytes;
+            byte[] tempV = cutBytes(resultBytes, 0, 4);//本次消费后的原额
+            Log.d(tag, "writeCardRcd:正本读09块返回：" + HEX.bytesToHex(dtZ));
             //判断消费前金额-消费金额=消费后金额
-//                if (DataConversionUtils.byteArrayToInt(icCardBeen.getPurIncMoney()) - DataConversionUtils.byteArrayToInt(dtZ)
-//                        != DataConversionUtils.byteArrayToInt(cutBytes(dtZ, 0, 4))) {
-//                    return false;
-//                }
+            if (DataConversionUtils.byteArrayToInt(icCardBeen.getPurOriMoney(), false) - purSub != DataConversionUtils.byteArrayToInt(tempV, false)) {
+                return false;
+            }
             //step 6 将9块消费后  需要确认
-            a = mifareManager.restoreBlock(9);
+            a = mifareR6Manager.restoreBlock(9);
             if (a != 0) {
-                Log.e(TAG, "M1ICCard:restoreBlock失败");
-            }
-            a = mifareManager.transferBlock(10);
-            if (a != 0) {
-                Log.e(TAG, "M1ICCard:transferBlock失败");
-            }
-            a = mifareManager.WriteBlock(10, dtZ);
-            if (a != 0) {
-                Log.e(TAG, "writeCardRcd: 写10块错误");
+                Log.e(tag, "M1ICCard:restoreBlock失败");
                 return false;
             }
-            retvalue = mifareManager.ReadBlock(10);
-            if (retvalue == null) {
-                Log.e(TAG, "writeCardRcd: 读10块错误");
+            a = mifareR6Manager.transferBlock(10);
+            if (a != 0) {
+                Log.e(tag, "M1ICCard:transferBlock失败");
                 return false;
             }
-            byte[] dtF = result;//本次消费后的原额
-            Log.d(TAG, "writeCardRcd: 副本读10块返回：" + HEX.bytesToHex(dtF));
+
+            resultBytes = mifareR6Manager.ReadBlock(10);
+            if (resultBytes == null) {
+                Log.e(tag, "writeCardRcd: 读10块错误");
+                return false;
+            }
+            byte[] dtF = resultBytes;//第10块数据 （副本）
+            Log.d(tag, "writeCardRcd: 副本读10块返回：" + HEX.bytesToHex(dtF));
             if (!Arrays.equals(dtF, dtZ)) {
-                Log.d(TAG, "writeCardRcd: 正副本判断返回");
+                Log.d(tag, "writeCardRcd: 正副本判断返回");
                 return false;
             }
             //step 7
             CInfo.fProc += 1;
             if (!Modify_InfoArea(24)) {
-                Log.e(TAG, "writeCardRcd: 改写24错误");
+                Log.e(tag, "writeCardRcd: 改写24错误");
                 return false;
             }
             //step 8
             fErr = 0;
             if (!Modify_InfoArea(25)) {
-                Log.e(TAG, "writeCardRcd: 改写25错误");
+                Log.e(tag, "writeCardRcd: 改写25错误");
                 return false;
             }
-
+            break;
         }
+        if (fErr == 1) {
+            //添加灰记录 报语音请重刷
+            return false;
+        }
+        //添加正常交易记录 报语音显示界面
+        return true;
     }
 
     /**
@@ -1302,7 +1433,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         info[7] = CInfo.fFileNr;
 
         System.arraycopy(new byte[]{(byte) 0xff, (byte) 0xff, (byte)
-                0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff}, 0, info, 4, 7);
+                0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff}, 0, info, 8, 7);
         for (chk = 0, i = 0; i < 15; i++) {
             chk ^= info[i];
         }
@@ -1310,24 +1441,24 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
         //认证6扇区24块
         byte[] lodKeys = lodkey[6];
-        int a = mifareManager.AuthenticationCardByKey(AUTH_TYPEA, snUid, blk, lodKeys);
+        int a = mifareR6Manager.AuthenticationCardByKey(AUTH_TYPEA, snUid, blk, lodKeys);
         if (a != 0) {
-            Log.e(TAG, "Modify_InfoArea: 认证6扇区24块失败");
+            Log.e(tag, "Modify_InfoArea: 认证6扇区24块失败");
             return false;
         }
-        a = mifareManager.WriteBlock(blk, info);
+        a = mifareR6Manager.WriteBlock(blk, info);
         if (a != 0) {
-            Log.e(TAG, "Modify_InfoArea: 写6扇区24块错误");
+            Log.e(tag, "Modify_InfoArea: 写6扇区24块错误");
             return false;
         }
-        retvalue = mifareManager.ReadBlock(blk);
-        if (retvalue == null) {
-            Log.e(TAG, "Modify_InfoArea: 读6扇区24块错误");
+        resultBytes = mifareR6Manager.ReadBlock(blk);
+        if (resultBytes == null) {
+            Log.e(tag, "Modify_InfoArea: 读6扇区24块错误");
             return false;
         }
-        tpdt = retvalue;
+        tpdt = resultBytes;
         if (!Arrays.equals(info, tpdt)) {
-            Log.e(TAG, "Modify_InfoArea: ");
+            Log.e(tag, "Modify_InfoArea: ");
             return false;
         }
 
@@ -1398,15 +1529,15 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             blk = RcdBlkIndex[CInfo.cPtr == 0 ? 8 : CInfo.cPtr - 1];
 
             byte[] lodKeys = lodkey[blk / 4];
-            int a = mifareManager.AuthenticationCardByKey(AUTH_TYPEA, snUid, blk, lodKeys);
+            int a = mifareR6Manager.AuthenticationCardByKey(AUTH_TYPEA, snUid, blk, lodKeys);
             if (a != 0) {
                 return;
             }
-            retvalue = mifareManager.ReadBlock(blk);
-            if (retvalue == null) {
+            resultBytes = mifareR6Manager.ReadBlock(blk);
+            if (resultBytes == null) {
                 return;
             }
-            byte[] RcdInCard = retvalue;
+            byte[] RcdInCard = resultBytes;
             //todo utc时间转bcd时间 UTCtoBCDTime(ArrToVar( & RcdInCard[0], 4), CardRcdDateTime);
             byte[] UTCTimes = cutBytes(RcdInCard, 0, 4);
             CardRcdOriMoney = cutBytes(RcdInCard, 4, 4);
@@ -1449,5 +1580,70 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             if (!Modify_InfoArea(24)) return;
         }
 
+    }
+
+
+    private HSMDecoder hsmDecoder;
+    private HSMDecodeComponent hsmDecodeComponent = null;
+
+    private void initScanBards() {
+
+        hsmDecoder = HSMDecoder.getInstance(this);
+        hsmDecoder.addResultListener(this);
+        hsmDecoder.enableSymbology(QR);
+        hsmDecoder.enableAimer(true);
+        hsmDecoder.setAimerColor(Color.RED);
+        hsmDecoder.setOverlayText("ceshi");
+        hsmDecoder.setOverlayTextColor(Color.RED);
+        hsmDecoder.enableSound(true);
+        //初始为默认前置摄像头扫码
+        hsmDecoder.setActiveCamera(ActiveCamera.REAR_FACING);//后置 摄像头
+        CameraManager cameraManager = CameraManager.getInstance(MainActivity.this);
+        hsmDecodeComponent = new HSMDecodeComponent(MainActivity.this);
+        cameraManager.closeCamera();
+
+        ScanUtils.activateScan(this, new OnBackListener() {
+            @Override
+            public void onBack() {
+                hsmDecoder.enableSymbology(QR);
+                hsmDecoder.enableSymbology(QR);
+                hsmDecoder.enableSymbology(QR);
+                cameraManager.openCamera();
+                hsmDecodeComponent.enableScanning(true);
+                Toast.makeText(MainActivity.this, "激活成功！", Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onError(Throwable e) {
+                cameraManager.openCamera();
+                hsmDecodeComponent.enableScanning(true);
+                Toast.makeText(MainActivity.this, "激活失败！" + e.toString(), Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    @Override
+    public void onHSMDecodeResult(HSMDecodeResult[] hsmDecodeResults) {
+        try {
+            byte[] barcodeDataBytes = hsmDecodeResults[0].getBarcodeDataBytes();
+            Log.i("kkkkkk", "onHSMDecodeResult: ");
+            String qr = new String(barcodeDataBytes);
+            QrEntity qrEntity = new QrEntity(qr);
+            try {
+                boolean validation = ValidationUtils.validation(qrEntity);
+                Logcat.d(validation);
+                if (validation) {
+                    Toast.makeText(this, "验证通过", Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(this, "验证失败", Toast.LENGTH_SHORT).show();
+                }
+
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }

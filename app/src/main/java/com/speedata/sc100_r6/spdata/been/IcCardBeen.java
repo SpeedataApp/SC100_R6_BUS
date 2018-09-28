@@ -28,6 +28,7 @@ public class IcCardBeen {
     private byte[] purIncMoney;//充值金额
 
     private byte[] PurOriMoney;//原额
+
     private byte[] PurSub;//消费金额
 
 
