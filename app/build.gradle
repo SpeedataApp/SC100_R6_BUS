@@ -4,7 +4,7 @@ android {
     compileSdkVersion 27
     defaultConfig {
         applicationId "com.speedata.sc100_r6"
-        minSdkVersion 15
+        minSdkVersion 19
         targetSdkVersion 27
         versionCode 1
         versionName "1.0"
@@ -31,6 +31,7 @@ dependencies {
     androidTestImplementation 'com.android.support.test.espresso:espresso-core:3.0.2'
         implementation 'com.speedata:r6lib:2.2'
     implementation 'com.speedata:psam:1.5.3'
-    implementation 'com.speedata:deivice:+'
+    implementation 'com.alibaba:fastjson:1.2.24'
+    implementation 'com.speedata:deivice:1.5.9'
     implementation project(':yinlianbarcode')
 }
